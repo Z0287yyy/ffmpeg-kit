@@ -4,13 +4,13 @@ android {
     if (project.android.hasProperty("namespace")) {
         namespace 'com.arthenica.ffmpegkit'
     }
-    compileSdk 34
+    compileSdk 33
     ndkVersion "22.1.7171670"
 
     defaultConfig {
         minSdk 24
-        targetSdk 34
-        versionCode 20250804
+        targetSdk 33
+        versionCode 240600
         versionName "6.0"
         project.archivesBaseName = "ffmpeg-kit"
         consumerProguardFiles "consumer-rules.pro"
@@ -40,6 +40,7 @@ android {
             systemProperty 'enable.ffmpeg.kit.test.mode', 'true'
         }
     }
+
 
     publishing {
         singleVariant('release') {
