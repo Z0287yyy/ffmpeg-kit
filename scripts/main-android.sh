@@ -28,15 +28,6 @@ fi
 echo -e "\nBuilding ${ARCH} platform on API level ${API}\n"
 echo -e "\nINFO: Starting new build for ${ARCH} on API level ${API} at $(date)\n" 1>>"${BASEDIR}"/build.log 2>&1
 
-# ===== Inject 16K page alignment flags for ALL external libs & FFmpeg builds =====
-# These environment variables will be honored by most Autotools/CMake/handmade makefiles and FFmpeg's configure.
-export FFMPEGKIT_LDFLAGS_16K="-Wl,-z,max-page-size=0x4000 -Wl,-z,common-page-size=0x4000"
-export LDFLAGS="${FFMPEGKIT_LDFLAGS_16K} ${LDFLAGS}"
-export SHFLAGS="${FFMPEGKIT_LDFLAGS_16K} ${SHFLAGS}"
-export EXTRA_LDFLAGS="${FFMPEGKIT_LDFLAGS_16K} ${EXTRA_LDFLAGS}"
-echo -e "INFO: Global LDFLAGS for 16K alignment: ${FFMPEGKIT_LDFLAGS_16K}\n" 1>>"${BASEDIR}"/build.log 2>&1
-# ================================================================================
-
 # SET BASE INSTALLATION DIRECTORY FOR THIS ARCHITECTURE
 export LIB_INSTALL_BASE="${BASEDIR}/prebuilt/$(get_build_directory)"
 
@@ -53,6 +44,7 @@ for library in {1..50}; do
   if [[ ${!library} -eq 1 ]]; then
     ENABLED_LIBRARY=$(get_library_name $((library - 1)))
     enabled_library_list+=(${ENABLED_LIBRARY})
+
     echo -e "INFO: Enabled library ${ENABLED_LIBRARY} will be built\n" 1>>"${BASEDIR}"/build.log 2>&1
   fi
 done
@@ -175,12 +167,16 @@ while [ ${#enabled_library_list[@]} -gt $completed ]; do
 
     if [[ $run -eq 1 ]] && [[ "${!BUILD_COMPLETED_FLAG}" != "1" ]]; then
       LIBRARY_IS_INSTALLED=$(library_is_installed "${LIB_INSTALL_BASE}" "${library}")
+
       echo -e "INFO: Flags detected for ${library}: already installed=${LIBRARY_IS_INSTALLED}, rebuild requested by user=${!REBUILD_FLAG}, will be rebuilt due to dependency update=${!DEPENDENCY_REBUILT_FLAG}\n" 1>>"${BASEDIR}"/build.log 2>&1
 
       # CHECK IF BUILD IS NECESSARY OR NOT
       if [[ ${LIBRARY_IS_INSTALLED} -ne 1 ]] || [[ ${!REBUILD_FLAG} -eq 1 ]] || [[ ${!DEPENDENCY_REBUILT_FLAG} -eq 1 ]]; then
+
         echo -n "${library}: "
+
         "${BASEDIR}"/scripts/run-android.sh "${library}" 1>>"${BASEDIR}"/build.log 2>&1
+
         RC=$?
 
         # SET SOME FLAGS AFTER THE BUILD
@@ -210,16 +206,21 @@ done
 # BUILD CUSTOM LIBRARIES
 for custom_library_index in "${CUSTOM_LIBRARIES[@]}"; do
   library_name="CUSTOM_LIBRARY_${custom_library_index}_NAME"
+
   echo -e "\nDEBUG: Custom library ${!library_name} will be built\n" 1>>"${BASEDIR}"/build.log 2>&1
 
   # DEFINE SOME FLAGS TO REBUILD OPTIONS
   REBUILD_FLAG=$(echo "REBUILD_${!library_name}" | sed "s/\-/\_/g")
   LIBRARY_IS_INSTALLED=$(library_is_installed "${LIB_INSTALL_BASE}" "${!library_name}")
+
   echo -e "INFO: Flags detected for custom library ${!library_name}: already installed=${LIBRARY_IS_INSTALLED}, rebuild requested by user=${!REBUILD_FLAG}\n" 1>>"${BASEDIR}"/build.log 2>&1
 
   if [[ ${LIBRARY_IS_INSTALLED} -ne 1 ]] || [[ ${!REBUILD_FLAG} -eq 1 ]]; then
+
     echo -n "${!library_name}: "
+
     "${BASEDIR}"/scripts/run-android.sh "${!library_name}" 1>>"${BASEDIR}"/build.log 2>&1
+
     RC=$?
 
     # SET SOME FLAGS AFTER THE BUILD
@@ -239,8 +240,10 @@ done
 
 # SKIP TO SPEED UP THE BUILD
 if [[ ${SKIP_ffmpeg} -ne 1 ]]; then
-  # BUILD FFMPEG (inherits the injected LDFLAGS/SHFLAGS/EXTRA_LDFLAGS)
+
+  # BUILD FFMPEG
   source "${BASEDIR}"/scripts/android/ffmpeg.sh
+
   if [[ $? -ne 0 ]]; then
     exit 1
   fi
