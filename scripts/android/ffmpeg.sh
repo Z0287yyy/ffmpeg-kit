@@ -29,6 +29,13 @@ export CXXFLAGS=$(get_cxxflags "${LIB_NAME}")
 export LDFLAGS=$(get_ldflags "${LIB_NAME}")
 export PKG_CONFIG_LIBDIR="${INSTALL_PKG_CONFIG_DIR}"
 
+# >>> 16K ALIGN: global linker flags (baseline for most builds)
+export FFMPEGKIT_LDFLAGS_16K="-Wl,-z,max-page-size=0x4000 -Wl,-z,common-page-size=0x4000"
+export LDFLAGS="${FFMPEGKIT_LDFLAGS_16K} ${LDFLAGS}"
+export SHFLAGS="${FFMPEGKIT_LDFLAGS_16K} ${SHFLAGS}"
+echo -e "INFO: 16K page align LDFLAGS injected: ${FFMPEGKIT_LDFLAGS_16K}\n" 1>>"${BASEDIR}"/build.log 2>&1
+# <<< 16K ALIGN
+
 cd "${BASEDIR}"/src/"${LIB_NAME}" 1>>"${BASEDIR}"/build.log 2>&1 || return 1
 
 # SET BUILD OPTIONS
@@ -54,7 +61,6 @@ arm64-v8a)
 x86)
   TARGET_CPU="i686"
   TARGET_ARCH="i686"
-
   # asm disabled due to this ticket https://trac.ffmpeg.org/ticket/4928
   ASM_OPTIONS=" --disable-neon --disable-asm --disable-inline-asm"
   ;;
@@ -305,9 +311,7 @@ for library in {0..61}; do
       ;;
     esac
   else
-
-    # THE FOLLOWING LIBRARIES SHOULD BE EXPLICITLY DISABLED TO PREVENT AUTODETECT
-    # NOTE THAT IDS MUST BE +1 OF THE INDEX VALUE
+    # prevent autodetect of some libs when disabled
     if [[ ${library} -eq ${LIBRARY_SDL} ]]; then
       CONFIGURE_POSTFIX+=" --disable-sdl2"
     elif [[ ${library} -eq ${LIBRARY_SYSTEM_ZLIB} ]]; then
@@ -357,8 +361,6 @@ fi
 
 # SET DEBUG OPTIONS
 if [[ -z ${FFMPEG_KIT_DEBUG} ]]; then
-
-  # SET LTO FLAGS
   if [[ -z ${NO_LINK_TIME_OPTIMIZATION} ]]; then
     DEBUG_OPTIONS="--disable-debug --enable-lto"
   else
@@ -373,12 +375,8 @@ echo -n -e "\n${LIB_NAME}: "
 if [[ -z ${NO_WORKSPACE_CLEANUP_ffmpeg} ]]; then
   echo -e "INFO: Cleaning workspace for ${LIB_NAME}\n" 1>>"${BASEDIR}"/build.log 2>&1
   make distclean 2>/dev/null 1>/dev/null
-
-  # WORKAROUND TO MANUALLY DELETE UNCLEANED FILES
   rm -f "${BASEDIR}"/src/"${LIB_NAME}"/libavfilter/opencl/*.o 1>>"${BASEDIR}"/build.log 2>&1
   rm -f "${BASEDIR}"/src/"${LIB_NAME}"/libavcodec/neon/*.o 1>>"${BASEDIR}"/build.log 2>&1
-
-  # DELETE SHARED FRAMEWORK WORKAROUNDS
   git checkout "${BASEDIR}/src/ffmpeg/ffbuild" 1>>"${BASEDIR}"/build.log 2>&1
 fi
 
@@ -396,10 +394,8 @@ git checkout libavformat/file.c 1>>"${BASEDIR}"/build.log 2>&1
 git checkout libavformat/protocols.c 1>>"${BASEDIR}"/build.log 2>&1
 git checkout libavutil 1>>"${BASEDIR}"/build.log 2>&1
 
-# 1. Use thread local log levels
 ${SED_INLINE} 's/static int av_log_level/__thread int av_log_level/g' "${BASEDIR}"/src/"${LIB_NAME}"/libavutil/log.c 1>>"${BASEDIR}"/build.log 2>&1 || return 1
 
-# 2. Enable ffmpeg-kit protocols
 if [[ ${NO_FFMPEG_KIT_PROTOCOLS} == "1" ]]; then
   ${SED_INLINE} "s| av_set_saf|//av_set_saf|g" "${BASEDIR}"/android/ffmpeg-kit-android-lib/src/main/cpp/ffmpegkit.c 1>>"${BASEDIR}"/build.log 2>&1
   echo -e "\nINFO: Disabled custom ffmpeg-kit protocols\n" 1>>"${BASEDIR}"/build.log 2>&1
@@ -412,8 +408,7 @@ else
   echo -e "\nINFO: Enabled custom ffmpeg-kit protocols\n" 1>>"${BASEDIR}"/build.log 2>&1
 fi
 
-###################################################################
-
+# ---------------------- FFMPEG CONFIGURE -----------------------
 ./configure \
   --cross-prefix="${HOST}-" \
   --sysroot="${ANDROID_SYSROOT}" \
@@ -471,16 +466,25 @@ fi
   --disable-nvenc \
   --disable-vaapi \
   --disable-vdpau \
-  ${CONFIGURE_POSTFIX} 1>>"${BASEDIR}"/build.log 2>&1
+  ${CONFIGURE_POSTFIX} \
+  --extra-ldflags="${FFMPEGKIT_LDFLAGS_16K}" 1>>"${BASEDIR}"/build.log 2>&1
+# ---------------------- /FFMPEG CONFIGURE ----------------------
 
 if [[ $? -ne 0 ]]; then
   echo -e "failed\n\nSee build.log for details\n"
   exit 1
 fi
 
+# >>> 16K ALIGN: enforce flags in generated config.mak (belt & suspenders)
+if [ -f "config.mak" ]; then
+  ${SED_INLINE} 's/^LDFLAGS=.*/& '"${FFMPEGKIT_LDFLAGS_16K}"'/' config.mak 1>>"${BASEDIR}"/build.log 2>&1
+  ${SED_INLINE} 's/^SHFLAGS=.*/& '"${FFMPEGKIT_LDFLAGS_16K}"'/' config.mak 1>>"${BASEDIR}"/build.log 2>&1
+  echo -e "INFO: Patched ffmpeg/config.mak with 16K LDFLAGS\n" 1>>"${BASEDIR}"/build.log 2>&1
+fi
+# <<< 16K ALIGN
+
 if [[ -z ${NO_OUTPUT_REDIRECTION} ]]; then
   make -j$(get_cpu_count) 1>>"${BASEDIR}"/build.log 2>&1
-
   if [[ $? -ne 0 ]]; then
     echo -e "failed\n\nSee build.log for details\n"
     exit 1
@@ -488,7 +492,6 @@ if [[ -z ${NO_OUTPUT_REDIRECTION} ]]; then
 else
   echo -e "started\n"
   make -j$(get_cpu_count)
-
   if [[ $? -ne 0 ]]; then
     echo -n -e "\n${LIB_NAME}: failed\n\nSee build.log for details\n"
     exit 1

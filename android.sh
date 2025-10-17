@@ -10,6 +10,9 @@ if [[ -z ${ANDROID_NDK_ROOT} ]]; then
   exit 1
 fi
 
+# ===== 16K page alignment LDFLAGS (for final .so link) =====
+export FFMPEGKIT_LDFLAGS_16K="-Wl,-z,max-page-size=0x4000 -Wl,-z,common-page-size=0x4000"
+
 # LOAD INITIAL SETTINGS
 export BASEDIR="$(pwd)"
 export FFMPEG_KIT_BUILD_TYPE="android"
@@ -59,7 +62,6 @@ while [ ! $# -eq 0 ]; do
     ;;
   --skip-*)
     SKIP_LIBRARY=$(echo $1 | sed -e 's/^--[A-Za-z]*-//g')
-
     skip_library "${SKIP_LIBRARY}"
     ;;
   --no-archive)
@@ -70,7 +72,6 @@ while [ ! $# -eq 0 ]; do
     ;;
   --no-workspace-cleanup-*)
     NO_WORKSPACE_CLEANUP_LIBRARY=$(echo $1 | sed -e 's/^--[A-Za-z]*-[A-Za-z]*-[A-Za-z]*-//g')
-
     no_workspace_cleanup_library "${NO_WORKSPACE_CLEANUP_LIBRARY}"
     ;;
   --no-link-time-optimization)
@@ -88,17 +89,14 @@ while [ ! $# -eq 0 ]; do
     ;;
   --reconf-*)
     CONF_LIBRARY=$(echo $1 | sed -e 's/^--[A-Za-z]*-//g')
-
     reconf_library "${CONF_LIBRARY}"
     ;;
   --rebuild-*)
     BUILD_LIBRARY=$(echo $1 | sed -e 's/^--[A-Za-z]*-//g')
-
     rebuild_library "${BUILD_LIBRARY}"
     ;;
   --redownload-*)
     DOWNLOAD_LIBRARY=$(echo $1 | sed -e 's/^--[A-Za-z]*-//g')
-
     redownload_library "${DOWNLOAD_LIBRARY}"
     ;;
   --full)
@@ -110,29 +108,23 @@ while [ ! $# -eq 0 ]; do
   --enable-custom-library-*)
     CUSTOM_LIBRARY_OPTION_KEY=$(echo $1 | sed -e 's/^--enable-custom-//g;s/=.*$//g')
     CUSTOM_LIBRARY_OPTION_VALUE=$(echo $1 | sed -e 's/^--enable-custom-.*=//g')
-
     echo -e "INFO: Custom library options detected: ${CUSTOM_LIBRARY_OPTION_KEY} ${CUSTOM_LIBRARY_OPTION_VALUE}\n" 1>>"${BASEDIR}"/build.log 2>&1
-
     generate_custom_library_environment_variables "${CUSTOM_LIBRARY_OPTION_KEY}" "${CUSTOM_LIBRARY_OPTION_VALUE}"
     ;;
   --enable-*)
     ENABLED_LIBRARY=$(echo $1 | sed -e 's/^--[A-Za-z]*-//g')
-
     enable_library "${ENABLED_LIBRARY}"
     ;;
   --disable-lib-*)
     DISABLED_LIB=$(echo $1 | sed -e 's/^--[A-Za-z]*-[A-Za-z]*-//g')
-
     disabled_libraries+=("${DISABLED_LIB}")
     ;;
   --disable-*)
     DISABLED_ARCH=$(echo $1 | sed -e 's/^--[A-Za-z]*-//g')
-
     disable_arch "${DISABLED_ARCH}"
     ;;
   --api-level=*)
     API_LEVEL=$(echo $1 | sed -e 's/^--[A-Za-z]*-[A-Za-z]*=//g')
-
     export API=${API_LEVEL}
     ;;
   --no-ffmpeg-kit-protocols)
@@ -194,7 +186,6 @@ print_custom_libraries
 for gpl_library in {$LIBRARY_X264,$LIBRARY_XVIDCORE,$LIBRARY_X265,$LIBRARY_LIBVIDSTAB,$LIBRARY_RUBBERBAND}; do
   if [[ ${ENABLED_LIBRARIES[$gpl_library]} -eq 1 ]]; then
     library_name=$(get_library_name ${gpl_library})
-
     if [ ${GPL_ENABLED} != "yes" ]; then
       echo -e "\n(*) Invalid configuration detected. GPL library ${library_name} enabled without --enable-gpl flag.\n"
       echo -e "\n(*) Invalid configuration detected. GPL library ${library_name} enabled without --enable-gpl flag.\n" 1>>"${BASEDIR}"/build.log 2>&1
@@ -219,8 +210,6 @@ export ORIGINAL_API=${API}
 for run_arch in {0..12}; do
   if [[ ${ENABLED_ARCHITECTURES[$run_arch]} -eq 1 ]]; then
     if [[ (${run_arch} -eq ${ARCH_ARM64_V8A} || ${run_arch} -eq ${ARCH_X86_64}) && ${ORIGINAL_API} -lt 21 ]]; then
-
-      # 64 bit ABIs supported after API 21
       export API=21
     else
       export API=${ORIGINAL_API}
@@ -296,15 +285,12 @@ if [[ -n ${ANDROID_ARCHITECTURES} ]]; then
     if [[ ${ENABLED_LIBRARIES[$library]} -eq 1 ]]; then
       ENABLED_LIBRARY=$(get_library_name ${library} | sed 's/-/_/g')
       LICENSE_FILE="${LICENSE_BASEDIR}/license_${ENABLED_LIBRARY}.txt"
-
       RC=$(copy_external_library_license_file ${library} "${LICENSE_FILE}")
-
       if [[ ${RC} -ne 0 ]]; then
         echo -e "DEBUG: Failed to copy the license file of ${ENABLED_LIBRARY}\n" 1>>"${BASEDIR}"/build.log 2>&1
         echo -e "failed\n\nSee build.log for details\n"
         exit 1
       fi
-
       echo -e "DEBUG: Copied the license file of ${ENABLED_LIBRARY} successfully\n" 1>>"${BASEDIR}"/build.log 2>&1
     fi
   done
@@ -313,19 +299,14 @@ if [[ -n ${ANDROID_ARCHITECTURES} ]]; then
   for custom_library_index in "${CUSTOM_LIBRARIES[@]}"; do
     library_name="CUSTOM_LIBRARY_${custom_library_index}_NAME"
     relative_license_path="CUSTOM_LIBRARY_${custom_library_index}_LICENSE_FILE"
-
     destination_license_path="${LICENSE_BASEDIR}/license_${!library_name}.txt"
-
     cp "${BASEDIR}/src/${!library_name}/${!relative_license_path}" "${destination_license_path}" 1>>"${BASEDIR}"/build.log 2>&1
-
     RC=$?
-
     if [[ ${RC} -ne 0 ]]; then
       echo -e "DEBUG: Failed to copy the license file of custom library ${!library_name}\n" 1>>"${BASEDIR}"/build.log 2>&1
       echo -e "failed\n\nSee build.log for details\n"
       exit 1
     fi
-
     echo -e "DEBUG: Copied the license file of custom library ${!library_name} successfully\n" 1>>"${BASEDIR}"/build.log 2>&1
   done
 
@@ -335,19 +316,21 @@ if [[ -n ${ANDROID_ARCHITECTURES} ]]; then
   else
     cp "${BASEDIR}"/LICENSE "${LICENSE_BASEDIR}"/license.txt 1>>"${BASEDIR}"/build.log 2>&1 || exit 1
   fi
-
   echo -e "DEBUG: Copied the ffmpeg-kit license successfully\n" 1>>"${BASEDIR}"/build.log 2>&1
 
   overwrite_file "${BASEDIR}"/tools/source/SOURCE "${LICENSE_BASEDIR}"/source.txt 1>>"${BASEDIR}"/build.log 2>&1 || exit 1
-
   echo -e "DEBUG: Copied source.txt successfully\n" 1>>"${BASEDIR}"/build.log 2>&1
 
-  # BUILD NATIVE LIBRARY
+  # BUILD NATIVE LIBRARY (inject 16K page alignment at final link)
   if [[ ${SKIP_ffmpeg_kit} -ne 1 ]]; then
     if [ "$(is_darwin_arm64)" == "1" ]; then
-       arch -x86_64 "${ANDROID_NDK_ROOT}"/ndk-build -B 1>>"${BASEDIR}"/build.log 2>&1
+      # Apple Silicon: use 'arch' + '/usr/bin/env' to pass env vars
+      arch -x86_64 /usr/bin/env NDK_APP_LDFLAGS="${FFMPEGKIT_LDFLAGS_16K}" \
+        "${ANDROID_NDK_ROOT}"/ndk-build -B 1>>"${BASEDIR}"/build.log 2>&1
     else
-      "${ANDROID_NDK_ROOT}"/ndk-build -B 1>>"${BASEDIR}"/build.log 2>&1
+      # Other platforms
+      NDK_APP_LDFLAGS="${FFMPEGKIT_LDFLAGS_16K}" \
+        "${ANDROID_NDK_ROOT}"/ndk-build -B 1>>"${BASEDIR}"/build.log 2>&1
     fi
 
     if [ $? -eq 0 ]; then
@@ -364,18 +347,13 @@ if [[ -n ${ANDROID_ARCHITECTURES} ]]; then
 
   # DO NOT BUILD ANDROID ARCHIVE
   if [[ ${NO_ARCHIVE} -ne 1 ]]; then
-
     echo -e -n "\nCreating Android archive under prebuilt: "
-
-    # BUILD ANDROID ARCHIVE
     rm -f "${BASEDIR}"/android/ffmpeg-kit-android-lib/build/outputs/aar/ffmpeg-kit-release.aar 1>>"${BASEDIR}"/build.log 2>&1
     ./gradlew ffmpeg-kit-android-lib:clean ffmpeg-kit-android-lib:assembleRelease ffmpeg-kit-android-lib:testReleaseUnitTest 1>>"${BASEDIR}"/build.log 2>&1
     if [ $? -ne 0 ]; then
       echo -e "failed\n"
       exit 1
     fi
-
-    # COPY ANDROID ARCHIVE TO PREBUILT DIRECTORY
     FFMPEG_KIT_AAR="${BASEDIR}/prebuilt/$(get_aar_directory)/ffmpeg-kit"
     rm -rf "${FFMPEG_KIT_AAR}" 1>>"${BASEDIR}"/build.log 2>&1
     mkdir -p "${FFMPEG_KIT_AAR}" 1>>"${BASEDIR}"/build.log 2>&1
@@ -384,7 +362,6 @@ if [[ -n ${ANDROID_ARCHITECTURES} ]]; then
       echo -e "failed\n"
       exit 1
     fi
-
     echo -e "INFO: Created ffmpeg-kit Android archive successfully.\n" 1>>"${BASEDIR}"/build.log 2>&1
     echo -e "ok\n"
   else

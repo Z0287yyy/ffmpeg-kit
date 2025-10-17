@@ -1,6 +1,9 @@
 MY_LOCAL_PATH := $(call my-dir)
 $(call import-add-path, $(MY_LOCAL_PATH))
 
+# === 16K page alignment for final .so (lld) ===
+FFMPEGKIT_16K_LDFLAGS := -Wl,-z,max-page-size=0x4000 -Wl,-z,common-page-size=0x4000
+
 MY_ARMV7 := false
 MY_ARMV7_NEON := false
 ifeq ($(TARGET_ARCH_ABI), armeabi-v7a)
@@ -56,6 +59,7 @@ ifeq ($(TARGET_ARCH_ABI), x86_64)
     MY_ARM_NEON := true
 endif
 
+# -------- ffmpegkit_abidetect (shared) --------
 include $(CLEAR_VARS)
 LOCAL_ARM_MODE := $(MY_ARM_MODE)
 LOCAL_MODULE := ffmpegkit_abidetect
@@ -65,6 +69,8 @@ LOCAL_C_INCLUDES := $(FFMPEG_INCLUDES)
 LOCAL_LDLIBS := -llog -lz -landroid
 LOCAL_STATIC_LIBRARIES := cpu-features
 LOCAL_ARM_NEON := ${MY_ARM_NEON}
+# ★ 加 16K 对齐（与 APP_LDFLAGS 叠加，不覆盖）
+LOCAL_LDFLAGS += $(FFMPEGKIT_16K_LDFLAGS)
 include $(BUILD_SHARED_LIBRARY)
 
 $(call import-module, cpu-features)
@@ -82,6 +88,7 @@ MY_LDLIBS := -llog -lz -landroid
 
 MY_BUILD_GENERIC_FFMPEG_KIT := true
 
+# -------- ffmpegkit_armv7a_neon (shared, 可选) --------
 ifeq ($(MY_ARMV7_NEON), true)
     include $(CLEAR_VARS)
     LOCAL_PATH := $(MY_LOCAL_PATH)/../ffmpeg-kit-android-lib/src/main/cpp
@@ -95,6 +102,8 @@ ifeq ($(MY_ARMV7_NEON), true)
 #        LOCAL_SHARED_LIBRARIES += c++_shared # otherwise NDK will not add the library for packaging
 #    endif
     LOCAL_ARM_NEON := true
+    # ★ 加 16K 对齐
+    LOCAL_LDFLAGS += $(FFMPEGKIT_16K_LDFLAGS)
     include $(BUILD_SHARED_LIBRARY)
 
     $(call import-module, ffmpeg/neon)
@@ -104,6 +113,7 @@ ifeq ($(MY_ARMV7_NEON), true)
     endif
 endif
 
+# -------- ffmpegkit (shared) --------
 ifeq ($(MY_BUILD_GENERIC_FFMPEG_KIT), true)
     include $(CLEAR_VARS)
     LOCAL_PATH := $(MY_LOCAL_PATH)/../ffmpeg-kit-android-lib/src/main/cpp
@@ -117,6 +127,8 @@ ifeq ($(MY_BUILD_GENERIC_FFMPEG_KIT), true)
 #        LOCAL_SHARED_LIBRARIES += c++_shared # otherwise NDK will not add the library for packaging
 #    endif
     LOCAL_ARM_NEON := ${MY_ARM_NEON}
+    # ★ 加 16K 对齐（关键：这是最终产出 libffmpegkit.so）
+    LOCAL_LDFLAGS += $(FFMPEGKIT_16K_LDFLAGS)
     include $(BUILD_SHARED_LIBRARY)
 
     $(call import-module, ffmpeg)
