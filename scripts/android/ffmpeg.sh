@@ -395,6 +395,7 @@ cd "${BASEDIR}"/src/"${LIB_NAME}" 1>>"${BASEDIR}"/build.log 2>&1 || return 1
 git checkout libavformat/file.c 1>>"${BASEDIR}"/build.log 2>&1
 git checkout libavformat/protocols.c 1>>"${BASEDIR}"/build.log 2>&1
 git checkout libavutil 1>>"${BASEDIR}"/build.log 2>&1
+git checkout libavdevice/android_camera.c configure 1>>"${BASEDIR}"/build.log 2>&1
 
 # 1. Use thread local log levels
 ${SED_INLINE} 's/static int av_log_level/__thread int av_log_level/g' "${BASEDIR}"/src/"${LIB_NAME}"/libavutil/log.c 1>>"${BASEDIR}"/build.log 2>&1 || return 1
@@ -410,6 +411,43 @@ else
   awk '{gsub(/ff_file_protocol;/,"ff_file_protocol;\nextern const URLProtocol ff_saf_protocol;")}1' libavformat/protocols.c > libavformat/protocols.c.tmp
   cat libavformat/protocols.c.tmp > libavformat/protocols.c
   echo -e "\nINFO: Enabled custom ffmpeg-kit protocols\n" 1>>"${BASEDIR}"/build.log 2>&1
+fi
+
+# 3. API 21-23 keeps android_camera, but Camera2 NDK symbols are loaded at runtime.
+#    LTS builds stay on API 16 without the camera indev.
+if [[ -z ${FFMPEG_KIT_LTS_BUILD} && ${API} -ge 21 && ${API} -lt 24 ]]; then
+  build_camera_ndk_loader || return 1
+
+  CAMERA_NDK_LIB="${BASEDIR}/android/build/camera-ndk/${ARCH}/libffmpegkit_camera_ndk.a"
+  export CFLAGS="${CFLAGS} -I${BASEDIR}/android/ffmpeg-kit-android-lib/src/main/cpp"
+
+  python3 - "${CAMERA_NDK_LIB}" <<'PY' || return 1
+import pathlib, sys
+library = sys.argv[1]
+camera = pathlib.Path("libavdevice/android_camera.c")
+camera_text = camera.read_text()
+old_includes = """#include <camera/NdkCameraDevice.h>
+#include <camera/NdkCameraManager.h>
+#include <media/NdkImage.h>
+#include <media/NdkImageReader.h>
+"""
+new_includes = '#include "ffmpegkit_camera_ndk.h"\n'
+if old_includes not in camera_text:
+    raise SystemExit("android_camera.c camera includes were not found")
+camera.write_text(camera_text.replace(old_includes, new_includes, 1))
+
+configure = pathlib.Path("configure")
+configure_text = configure.read_text()
+old_deps = 'android_camera_indev_deps="android camera2ndk mediandk pthreads"'
+new_deps = 'android_camera_indev_deps="android pthreads"'
+old_libs = 'android_camera_indev_extralibs="-landroid -lcamera2ndk -lmediandk"'
+new_libs = 'android_camera_indev_extralibs="-landroid %s -ldl"' % library
+if old_deps not in configure_text or old_libs not in configure_text:
+    raise SystemExit("android_camera configure lines were not found")
+configure.write_text(configure_text.replace(old_deps, new_deps, 1).replace(old_libs, new_libs, 1))
+PY
+
+  echo -e "INFO: Enabled runtime Camera2 NDK loader for Android API Level ${API}\n" 1>>"${BASEDIR}"/build.log 2>&1
 fi
 
 ###################################################################

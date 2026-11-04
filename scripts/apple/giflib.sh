@@ -6,6 +6,14 @@ export CFLAGS=$(get_cflags "${LIB_NAME}")" -DS_IREAD=S_IRUSR -DS_IWRITE=S_IWUSR"
 # COPY BUILD FILES
 cp "${BASEDIR}"/tools/patch/make/giflib/* "${BASEDIR}"/src/"${LIB_NAME}" 1>>"${BASEDIR}"/build.log 2>&1 || return 1
 
+# cp updates mtimes of configure.ac and Makefile.am. Those inputs match the
+# files already used to generate this release, so keep the generated files
+# newer and do not require the original aclocal version.
+touch "${BASEDIR}"/src/"${LIB_NAME}"/aclocal.m4 \
+  "${BASEDIR}"/src/"${LIB_NAME}"/Makefile.in \
+  "${BASEDIR}"/src/"${LIB_NAME}"/configure \
+  "${BASEDIR}"/src/"${LIB_NAME}"/config.h.in 1>>"${BASEDIR}"/build.log 2>&1 || return 1
+
 # ALWAYS CLEAN THE PREVIOUS BUILD
 make distclean 2>/dev/null 1>/dev/null
 

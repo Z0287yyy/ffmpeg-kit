@@ -175,7 +175,8 @@ if [[ -n ${DISPLAY_HELP} ]]; then
 fi
 
 # SET API LEVEL IN build.gradle
-${SED_INLINE} "s/minSdkVersion .*/minSdkVersion ${API}/g" "${BASEDIR}"/android/ffmpeg-kit-android-lib/build.gradle 1>>"${BASEDIR}"/build.log 2>&1
+${SED_INLINE} "s/minSdkVersion [0-9][0-9]*/minSdkVersion ${API}/g" "${BASEDIR}"/android/ffmpeg-kit-android-lib/build.gradle 1>>"${BASEDIR}"/build.log 2>&1
+${SED_INLINE} "s/minSdk [0-9][0-9]*/minSdk ${API}/g" "${BASEDIR}"/android/ffmpeg-kit-android-lib/build.gradle 1>>"${BASEDIR}"/build.log 2>&1
 ${SED_INLINE} "s/versionCode ..0/versionCode ${API}0/g" "${BASEDIR}"/android/ffmpeg-kit-android-lib/build.gradle 1>>"${BASEDIR}"/build.log 2>&1
 
 echo -e "\nBuilding ffmpeg-kit ${BUILD_TYPE_ID}library for Android\n"
@@ -368,6 +369,18 @@ if [[ -n ${ANDROID_ARCHITECTURES} ]]; then
     echo -e -n "\nCreating Android archive under prebuilt: "
 
     # BUILD ANDROID ARCHIVE
+    # Gradle 8.11 runs on Java 17 through 23. A newer default JDK cannot execute it.
+    GRADLE_JAVA_MAJOR=$(java -version 2>&1 | awk -F '"' '/version/ {print $2; exit}' | awk -F. '{ if ($1=="1") print $2; else print $1 }')
+    if [[ -n ${GRADLE_JAVA_MAJOR} && ${GRADLE_JAVA_MAJOR} -gt 23 && -x /usr/libexec/java_home ]]; then
+      GRADLE_JAVA_HOME=$(/usr/libexec/java_home -v 21 2>/dev/null || true)
+      if [[ -z ${GRADLE_JAVA_HOME} ]]; then
+        echo -e "failed\n\nGradle cannot run on Java ${GRADLE_JAVA_MAJOR}. Install JDK 21 or set JAVA_HOME to it.\n"
+        exit 1
+      fi
+      export JAVA_HOME="${GRADLE_JAVA_HOME}"
+      export PATH="${JAVA_HOME}/bin:${PATH}"
+      echo -e "INFO: Using JDK 21 at ${JAVA_HOME} for Gradle\n" 1>>"${BASEDIR}"/build.log 2>&1
+    fi
     rm -f "${BASEDIR}"/android/ffmpeg-kit-android-lib/build/outputs/aar/ffmpeg-kit-release.aar 1>>"${BASEDIR}"/build.log 2>&1
     ./gradlew ffmpeg-kit-android-lib:clean ffmpeg-kit-android-lib:assembleRelease ffmpeg-kit-android-lib:testReleaseUnitTest 1>>"${BASEDIR}"/build.log 2>&1
     if [ $? -ne 0 ]; then

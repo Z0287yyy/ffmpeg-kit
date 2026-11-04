@@ -1,8 +1,15 @@
 #!/bin/bash
 
 # UPDATE BUILD FLAGS
-export CFLAGS="$CFLAGS $(pkg-config --cflags libiconv) $(pkg-config --cflags cpu-features)"
-export LDFLAGS="$LDFLAGS $(pkg-config --libs --static libiconv) $(pkg-config --libs --static cpu-features)"
+# cpu-features.h is installed by this build. Pass that path directly so the
+# compile does not depend on pkg-config being available.
+export CFLAGS="$CFLAGS -I${LIB_INSTALL_BASE}/cpu-features/include/ndk_compat"
+export LDFLAGS="$LDFLAGS -L${LIB_INSTALL_BASE}/cpu-features/lib -lndk_compat"
+
+if [[ -f "${INSTALL_PKG_CONFIG_DIR}/libiconv.pc" ]] && command -v pkg-config >/dev/null 2>&1; then
+  export CFLAGS="$CFLAGS $(pkg-config --cflags libiconv)"
+  export LDFLAGS="$LDFLAGS $(pkg-config --libs --static libiconv)"
+fi
 
 # SET BUILD OPTIONS
 case ${ARCH} in

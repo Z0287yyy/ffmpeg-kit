@@ -55,7 +55,8 @@ under the prebuilt folder.\n"
 }
 
 enable_main_build() {
-  export API=24
+  # API 21 binary. Camera2 NDK symbols are resolved at runtime on API 24+.
+  export API=21
 }
 
 enable_lts_build() {
@@ -402,12 +403,15 @@ get_common_linked_libraries() {
   case $1 in
   ffmpeg)
 
-    # SUPPORTED ON API LEVEL 24 AND LATER
+    # Direct Camera2 NDK linkage is only safe when every device that loads the
+    # library has libcamera2ndk.so. API 21-23 builds use camera_ndk_loader.c instead.
     if [[ ${API} -ge 24 ]]; then
       echo "-lc -lm -ldl -llog -landroid -lcamera2ndk -lmediandk ${COMMON_LIBRARY_PATHS}"
     else
       echo "-lc -lm -ldl -llog -landroid ${COMMON_LIBRARY_PATHS}"
-      echo -e "INFO: Building ffmpeg without native camera API which is not supported on Android API Level ${API}\n" 1>>"${BASEDIR}"/build.log 2>&1
+      if [[ -n ${FFMPEG_KIT_LTS_BUILD} || ${API} -lt 21 ]]; then
+        echo -e "INFO: Building ffmpeg without native camera API which is not supported on Android API Level ${API}\n" 1>>"${BASEDIR}"/build.log 2>&1
+      fi
     fi
     ;;
   libvpx)
@@ -1012,6 +1016,7 @@ android_ndk_cmake() {
   esac
 
   echo ${cmake} \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_VERBOSE_MAKEFILE=0 \
     -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_ROOT}"/build/cmake/android.toolchain.cmake \
     -DCMAKE_SYSROOT="${ANDROID_SYSROOT}" \
@@ -1087,4 +1092,18 @@ build_android_lts_support() {
   # BUILD
   "${CC}" ${CFLAGS} -Wno-unused-command-line-argument -c "${BASEDIR}"/android/ffmpeg-kit-android-lib/src/main/cpp/android_lts_support.c -o "${BASEDIR}"/android/ffmpeg-kit-android-lib/src/main/cpp/android_lts_support.o ${LDFLAGS} 1>>"${BASEDIR}"/build.log 2>&1
   "${AR}" rcs "${BASEDIR}"/android/ffmpeg-kit-android-lib/src/main/cpp/libandroidltssupport.a "${BASEDIR}"/android/ffmpeg-kit-android-lib/src/main/cpp/android_lts_support.o 1>>"${BASEDIR}"/build.log 2>&1
+}
+
+# Static Camera2 bindings used by API 21-23 ffmpeg builds. The archive is linked
+# into libavdevice and dlopens libcamera2ndk.so only when the device provides it.
+build_camera_ndk_loader() {
+  local CAMERA_NDK_DIR="${BASEDIR}/android/build/camera-ndk/${ARCH}"
+  local CAMERA_NDK_SRC="${BASEDIR}/android/ffmpeg-kit-android-lib/src/main/cpp"
+
+  mkdir -p "${CAMERA_NDK_DIR}" 1>>"${BASEDIR}"/build.log 2>&1 || return 1
+
+  echo -e "INFO: Building runtime Camera2 NDK loader for ${ARCH}\n" 1>>"${BASEDIR}"/build.log 2>&1
+
+  "${CC}" -fPIC -O2 -c "${CAMERA_NDK_SRC}/camera_ndk_loader.c" -I"${CAMERA_NDK_SRC}" -o "${CAMERA_NDK_DIR}/camera_ndk_loader.o" 1>>"${BASEDIR}"/build.log 2>&1 || return 1
+  "${AR}" rcs "${CAMERA_NDK_DIR}/libffmpegkit_camera_ndk.a" "${CAMERA_NDK_DIR}/camera_ndk_loader.o" 1>>"${BASEDIR}"/build.log 2>&1 || return 1
 }

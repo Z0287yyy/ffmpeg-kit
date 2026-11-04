@@ -27,7 +27,7 @@ android {
     compileSdkVersion 33
 
     defaultConfig {
-        minSdkVersion 24
+        minSdkVersion 21
         targetSdkVersion 33
         versionCode 603
         versionName "6.0.3"
